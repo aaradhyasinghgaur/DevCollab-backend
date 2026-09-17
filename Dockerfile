@@ -19,10 +19,18 @@ COPY src ./src
 # Package application (skip tests for Docker build)
 RUN ./mvnw clean package -DskipTests
 
-# Stage 2: Minimal runtime container
-FROM eclipse-temurin:17-jre-jammy
+# Stage 2: Runtime container with execution runtimes (Node.js, Python, Java, C/C++)
+FROM eclipse-temurin:17-jdk-jammy
 
 WORKDIR /app
+
+# Install Node.js, Python3, and compilers for code sandbox
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    nodejs \
+    npm \
+    python3 \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create a non-root group and user
 RUN addgroup --system spring && adduser --system spring --ingroup spring

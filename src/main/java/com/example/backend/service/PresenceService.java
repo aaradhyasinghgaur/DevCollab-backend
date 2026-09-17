@@ -78,9 +78,22 @@ public class PresenceService {
                     if (value instanceof ParticipantDto p) {
                         p.setOnline(true);
                         list.add(p);
+                    } else if (value instanceof Map<?, ?> m) {
+                        try {
+                            Object idVal = m.get("userId");
+                            UUID uId = idVal != null ? UUID.fromString(idVal.toString()) : null;
+                            String dName = m.get("displayName") != null ? m.get("displayName").toString() : null;
+                            String aUrl = m.get("avatarUrl") != null ? m.get("avatarUrl").toString() : null;
+                            if (uId != null) {
+                                ParticipantDto p = new ParticipantDto(uId, dName, aUrl, Role.EDITOR, true);
+                                list.add(p);
+                            }
+                        } catch (Exception ignored) {}
                     }
                 }
-                return list;
+                if (!list.isEmpty()) {
+                    return list;
+                }
             }
         } catch (Exception e) {
             log.debug("Redis presence read fallback to local: {}", e.getMessage());
