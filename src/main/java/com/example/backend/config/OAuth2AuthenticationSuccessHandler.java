@@ -52,9 +52,12 @@ public class OAuth2AuthenticationSuccessHandler implements AuthenticationSuccess
             user = repo.findByEmail(email).orElseThrow(() -> new RuntimeException("User not found"));
         }
 
-        System.out.println("Authentication/registration successful");
-
-        String jwt = jwtService.generateToken(user);
+        java.util.Map<String, Object> extraClaims = new java.util.HashMap<>();
+        if (user.getEmail() != null) extraClaims.put("email", user.getEmail());
+        if (user.getDisplayName() != null) extraClaims.put("displayName", user.getDisplayName());
+        if (user.getId() != null) extraClaims.put("userId", user.getId().toString());
+        if (user.getAvatarUrl() != null) extraClaims.put("avatarUrl", user.getAvatarUrl());
+        String jwt = jwtService.generateToken(extraClaims, user);
 
         AuthenticationResponse authenticationResponse =
                 AuthenticationResponse.builder()
