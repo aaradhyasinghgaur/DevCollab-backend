@@ -42,8 +42,8 @@ COPY --from=builder /build/target/*.jar app.jar
 # Expose default HTTP port
 EXPOSE 8080
 
-# Environment variables with sensible defaults
+# Environment variables with sensible defaults tuned for Render Free Tier (512MB RAM)
 ENV PORT=8080 \
-    JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
+    JAVA_OPTS="-XX:+UseContainerSupport -Xmx256m -Xms128m -XX:+UseSerialGC -Xss512k -XX:+ExitOnOutOfMemoryError"
 
 ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -Dserver.port=${PORT:-8080} -jar app.jar"]

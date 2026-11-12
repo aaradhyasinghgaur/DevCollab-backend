@@ -40,6 +40,8 @@ public class SecurityConfiguration {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(
+                                "/",
+                                "/health",
                                 "/api/v1/auth/**",
                                 "/api/auth/**",
                                 "/oauth2/**",
