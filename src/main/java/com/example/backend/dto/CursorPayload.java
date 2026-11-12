@@ -1,6 +1,7 @@
 package com.example.backend.dto;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -13,8 +14,10 @@ import java.util.UUID;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class CursorPayload {
     private UUID userId;
+    private String clientId;
     private String username;
     private String displayName;
     private String color;
@@ -22,6 +25,10 @@ public class CursorPayload {
     @JsonProperty("userName")
     public String getUserName() {
         return displayName != null ? displayName : (username != null ? username : "Peer");
+    }
+
+    public String getUsername() {
+        return username;
     }
 
     @JsonAlias({"line", "lineNumber"})

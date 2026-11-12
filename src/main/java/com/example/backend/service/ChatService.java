@@ -31,30 +31,40 @@ public class ChatService {
         Room room = roomRepo.findById(roomId)
                 .orElseThrow(() -> new RuntimeException("Room not found: " + roomId));
 
-        User user = userRepo.findByUsername(username)
-                .or(() -> userRepo.findByEmail(username))
-                .orElseThrow(() -> new RuntimeException("User not found: " + username));
+        User user = null;
+        if (username != null && !username.isBlank()) {
+            user = userRepo.findByUsername(username)
+                    .or(() -> userRepo.findByEmail(username))
+                    .orElse(null);
+        }
 
-        ChatMessage message = ChatMessage.builder()
-                .room(room)
-                .user(user)
-                .content(content != null ? content.trim() : "")
-                .build();
+        if (user == null) {
+            user = room.getOwner();
+        }
 
-        // Only persist actual chat messages with non-empty content
-        if (type == MessageType.CHAT && !message.getContent().isEmpty()) {
+        ChatMessage message = null;
+        if (user != null && type == MessageType.CHAT && content != null && !content.trim().isEmpty()) {
+            message = ChatMessage.builder()
+                    .room(room)
+                    .user(user)
+                    .content(content.trim())
+                    .build();
             message = chatRepo.save(message);
         }
 
+        String displayName = user != null
+                ? (user.getDisplayName() != null ? user.getDisplayName() : user.getUsername())
+                : (username != null ? username : "Collaborator");
+
         ChatMessageDto dto = ChatMessageDto.builder()
-                .id(message.getId() != null ? message.getId() : UUID.randomUUID())
+                .id(message != null && message.getId() != null ? message.getId() : UUID.randomUUID())
                 .roomId(roomId)
-                .senderId(user.getId())
-                .senderName(user.getDisplayName())
-                .senderAvatar(user.getAvatarUrl())
+                .senderId(user != null ? user.getId() : UUID.randomUUID())
+                .senderName(displayName)
+                .senderAvatar(user != null ? user.getAvatarUrl() : null)
                 .content(content)
                 .type(type)
-                .createdAt(message.getCreatedAt() != null ? message.getCreatedAt() : LocalDateTime.now())
+                .createdAt(message != null && message.getCreatedAt() != null ? message.getCreatedAt() : LocalDateTime.now())
                 .build();
 
         messagingTemplate.convertAndSend("/topic/room/" + roomId + "/chat", dto);
@@ -72,7 +82,7 @@ public class ChatService {
                         .id(m.getId())
                         .roomId(roomId)
                         .senderId(m.getUser().getId())
-                        .senderName(m.getUser().getDisplayName())
+                        .senderName(m.getUser().getDisplayName() != null ? m.getUser().getDisplayName() : m.getUser().getUsername())
                         .senderAvatar(m.getUser().getAvatarUrl())
                         .content(m.getContent())
                         .type(MessageType.CHAT)

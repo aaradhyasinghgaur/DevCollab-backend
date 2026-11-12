@@ -46,6 +46,7 @@ public class SecurityConfiguration {
                                 "/api/auth/**",
                                 "/oauth2/**",
                                 "/login/**",
+                                "/ws",
                                 "/ws/**",
                                 "/error"
                         )

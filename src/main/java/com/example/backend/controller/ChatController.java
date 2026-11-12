@@ -126,11 +126,21 @@ public class ChatController {
                     .ifPresent(u -> {
                         cursor.setUserId(u.getId());
                         cursor.setUsername(u.getUsername());
-                        cursor.setDisplayName(u.getDisplayName());
+                        cursor.setDisplayName(u.getDisplayName() != null ? u.getDisplayName() : u.getUsername());
                         String[] colors = {"#a855f7", "#3b82f6", "#10b981", "#f59e0b", "#ec4899", "#06b6d4", "#f97316"};
                         int colorIdx = Math.abs(u.getId().hashCode()) % colors.length;
                         cursor.setColor(colors[colorIdx]);
                     });
+        }
+        if (cursor.getColor() == null) {
+            String[] colors = {"#a855f7", "#3b82f6", "#10b981", "#f59e0b", "#ec4899", "#06b6d4", "#f97316"};
+            int hash = cursor.getClientId() != null
+                    ? Math.abs(cursor.getClientId().hashCode())
+                    : (cursor.getUsername() != null ? Math.abs(cursor.getUsername().hashCode()) : 0);
+            cursor.setColor(colors[hash % colors.length]);
+        }
+        if (cursor.getDisplayName() == null) {
+            cursor.setDisplayName(cursor.getUsername() != null ? cursor.getUsername() : "Collaborator");
         }
         messagingTemplate.convertAndSend("/topic/room/" + roomId + "/cursor", cursor);
     }

@@ -102,5 +102,27 @@ public class RoomController {
         service.kickParticipant(id, userId, authentication.getName());
         return org.springframework.http.ResponseEntity.noContent().build();
     }
+
+    @PutMapping("/rooms/{id}/participants/{userId}/role")
+    public RoomResponse updateParticipantRole(
+            @PathVariable java.util.UUID id,
+            @PathVariable java.util.UUID userId,
+            @RequestBody java.util.Map<String, String> body,
+            Authentication authentication
+    ) {
+        String roleStr = body.getOrDefault("role", body.getOrDefault("roles", "EDITOR"));
+        com.example.backend.entity.Role newRole = com.example.backend.entity.Role.valueOf(roleStr.toUpperCase());
+        return service.updateParticipantRole(id, userId, newRole, authentication.getName());
+    }
+
+    @PostMapping("/rooms/{id}/participants/{userId}/role")
+    public RoomResponse updateParticipantRolePost(
+            @PathVariable java.util.UUID id,
+            @PathVariable java.util.UUID userId,
+            @RequestBody java.util.Map<String, String> body,
+            Authentication authentication
+    ) {
+        return updateParticipantRole(id, userId, body, authentication);
+    }
 }
 

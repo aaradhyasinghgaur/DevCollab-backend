@@ -304,18 +304,63 @@ public class RoomService {
         messagingTemplate.convertAndSend("/topic/room/" + roomId + "/presence", kickEvent);
     }
 
+    @org.springframework.transaction.annotation.Transactional
+    public RoomResponse updateParticipantRole(java.util.UUID roomId, java.util.UUID targetUserId, com.example.backend.entity.Role newRole, String ownerUsername) {
+        Room room = roomRepo.findById(roomId)
+                .orElseThrow(() -> new RuntimeException("Room not found: " + roomId));
+
+        User owner = userRepo.findByUsername(ownerUsername)
+                .or(() -> userRepo.findByEmail(ownerUsername))
+                .orElseThrow(() -> new RuntimeException("Owner not found: " + ownerUsername));
+
+        if (!room.getOwner().getId().equals(owner.getId())) {
+            throw new RuntimeException("Only the room owner can update participant access rights");
+        }
+
+        if (targetUserId.equals(owner.getId())) {
+            throw new RuntimeException("Owner access rights cannot be changed");
+        }
+
+        User targetUser = userRepo.findById(targetUserId)
+                .orElseThrow(() -> new RuntimeException("Target user not found: " + targetUserId));
+
+        RoomParticipant participant = participantRepo.findByRoomAndUser(room, targetUser)
+                .orElseThrow(() -> new RuntimeException("Participant not found in room"));
+
+        participant.setRole(newRole);
+        participantRepo.save(participant);
+
+        RoomResponse updatedRoom = mapToRoomResponse(room);
+
+        com.example.backend.dto.PresenceResponse roleUpdateEvent = com.example.backend.dto.PresenceResponse.builder()
+                .type("ROLE_UPDATED")
+                .status("ROLE_UPDATED")
+                .roomId(roomId.toString())
+                .userId(targetUserId.toString())
+                .username(targetUser.getUsername())
+                .displayName(targetUser.getDisplayName() != null ? targetUser.getDisplayName() : targetUser.getUsername())
+                .participants(updatedRoom.getParticipants())
+                .timestamp(System.currentTimeMillis())
+                .build();
+        messagingTemplate.convertAndSend("/topic/room/" + roomId + "/presence", roleUpdateEvent);
+
+        return updatedRoom;
+    }
+
     public RoomResponse mapToRoomResponse(Room room) {
         List<RoomParticipant> participants = participantRepo.findByRoom(room);
         java.util.Set<java.util.UUID> activeUserIds = presenceService.getActiveUserIds(room.getId());
 
         List<com.example.backend.dto.ParticipantDto> participantDtos = participants.stream()
-                .map(p -> new com.example.backend.dto.ParticipantDto(
-                        p.getUser().getId(),
-                        p.getUser().getDisplayName() != null ? p.getUser().getDisplayName() : p.getUser().getUsername(),
-                        p.getUser().getAvatarUrl(),
-                        p.getRole(),
-                        activeUserIds.contains(p.getUser().getId())
-                ))
+                .map(p -> com.example.backend.dto.ParticipantDto.builder()
+                        .userId(p.getUser().getId())
+                        .displayName(p.getUser().getDisplayName() != null ? p.getUser().getDisplayName() : p.getUser().getUsername())
+                        .avatarUrl(p.getUser().getAvatarUrl())
+                        .roles(p.getRole())
+                        .online(activeUserIds.contains(p.getUser().getId()))
+                        .lastSeenAt(p.getLastSeenAt())
+                        .build()
+                )
                 .toList();
 
         return RoomResponse.builder()
