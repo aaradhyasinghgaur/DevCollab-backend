@@ -33,7 +33,7 @@ public class CodeExecutionService {
     private final UserRepo userRepo;
     private final SimpMessageSendingOperations messagingTemplate;
 
-    private static final int TIMEOUT_SECONDS = 6;
+    private static final int TIMEOUT_SECONDS = 60;
     private static final int MAX_OUTPUT_BYTES = 64 * 1024;
 
     public ExecutionResponse executeCode(UUID roomId, String code, ProgrammingLanguage language, String stdin, String username) {
@@ -72,9 +72,7 @@ public class CodeExecutionService {
                 .executedAt(saved.getExecutionAt())
                 .build();
 
-        // Broadcast to all room peers
-        messagingTemplate.convertAndSend("/topic/room/" + roomId + "/execution", response);
-
+        // Execution is local to the user who ran it; do not broadcast to room peers
         return response;
     }
 
@@ -134,18 +132,32 @@ public class CodeExecutionService {
         return runProcess(dir, List.of(pythonCmd, file.toAbsolutePath().toString()), stdin);
     }
 
+    private String extractJavaClassName(String code) {
+        if (code == null || code.isBlank()) return "Main";
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(?m)^\\s*public\\s+(?:final\\s+)?class\\s+([A-Za-z0-9_$]+)").matcher(code);
+        if (m.find()) {
+            return m.group(1);
+        }
+        m = java.util.regex.Pattern.compile("(?m)^\\s*class\\s+([A-Za-z0-9_$]+)").matcher(code);
+        if (m.find()) {
+            return m.group(1);
+        }
+        return "Main";
+    }
+
     private ExecutionResultDto executeJava(Path dir, String code, String stdin) throws Exception {
-        Path file = dir.resolve("Main.java");
+        String className = extractJavaClassName(code);
+        Path file = dir.resolve(className + ".java");
         Files.writeString(file, code, StandardCharsets.UTF_8);
 
         // Compile
-        ExecutionResultDto compile = runProcess(dir, List.of("javac", "Main.java"), null);
+        ExecutionResultDto compile = runProcess(dir, List.of("javac", className + ".java"), null);
         if (compile.exitCode != 0) {
             return compile;
         }
 
-        // Run
-        return runProcess(dir, List.of("java", "Main"), stdin);
+        // Run with memory tuning
+        return runProcess(dir, List.of("java", "-XX:+UseSerialGC", "-Xmx256m", "-cp", ".", className), stdin);
     }
 
     private ExecutionResultDto executeCpp(Path dir, String code, String stdin) throws Exception {
@@ -179,18 +191,40 @@ public class CodeExecutionService {
     }
 
     private ExecutionResultDto runProcess(Path workingDir, List<String> command, String stdin) {
+        Process process = null;
         try {
             ProcessBuilder pb = new ProcessBuilder(command);
             pb.directory(workingDir.toFile());
 
-            Process process = pb.start();
+            process = pb.start();
+            final Process proc = process;
 
-            if (stdin != null && !stdin.isEmpty()) {
-                try (OutputStream os = process.getOutputStream()) {
+            // Write stdin and close immediately to signal EOF to child process (prevents waiting/hanging)
+            try (OutputStream os = proc.getOutputStream()) {
+                if (stdin != null && !stdin.isEmpty()) {
                     os.write(stdin.getBytes(StandardCharsets.UTF_8));
                     os.flush();
-                } catch (IOException ignored) {}
-            }
+                }
+            } catch (IOException ignored) {}
+
+            // Asynchronously read stdout and stderr in parallel to avoid pipe buffer deadlock
+            java.util.concurrent.CompletableFuture<String> stdoutFuture =
+                    java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+                        try {
+                            return readStream(proc.getInputStream());
+                        } catch (Exception e) {
+                            return "";
+                        }
+                    });
+
+            java.util.concurrent.CompletableFuture<String> stderrFuture =
+                    java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+                        try {
+                            return readStream(proc.getErrorStream());
+                        } catch (Exception e) {
+                            return "";
+                        }
+                    });
 
             boolean finished = process.waitFor(TIMEOUT_SECONDS, TimeUnit.SECONDS);
             if (!finished) {
@@ -198,8 +232,8 @@ public class CodeExecutionService {
                 return new ExecutionResultDto("", "Execution timed out (exceeded " + TIMEOUT_SECONDS + " seconds).", 124);
             }
 
-            String stdout = readStream(process.getInputStream());
-            String stderr = readStream(process.getErrorStream());
+            String stdout = stdoutFuture.get(5, TimeUnit.SECONDS);
+            String stderr = stderrFuture.get(5, TimeUnit.SECONDS);
 
             return new ExecutionResultDto(stdout, stderr, process.exitValue());
 
@@ -207,6 +241,10 @@ public class CodeExecutionService {
             return new ExecutionResultDto("", "Runtime command unavailable or failed to launch (" + command.get(0) + "): " + e.getMessage(), 127);
         } catch (Exception e) {
             return new ExecutionResultDto("", "Error during execution: " + e.getMessage(), 1);
+        } finally {
+            if (process != null && process.isAlive()) {
+                process.destroyForcibly();
+            }
         }
     }
 
