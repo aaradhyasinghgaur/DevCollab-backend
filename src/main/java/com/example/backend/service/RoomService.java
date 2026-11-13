@@ -228,6 +228,7 @@ public class RoomService {
                     .timestamp(System.currentTimeMillis())
                     .build();
             messagingTemplate.convertAndSend("/topic/room/" + roomId + "/presence", deleteEvent);
+            messagingTemplate.convertAndSend("/topic/rooms", deleteEvent);
         } else {
             // Non-owner deletes the room for themselves only
             deleteRoomForUser(room, user);
@@ -382,6 +383,8 @@ public class RoomService {
                 .status("ROLE_UPDATED")
                 .roomId(roomId.toString())
                 .userId(targetUserId.toString())
+                .role(newRole.name())
+                .roles(newRole.name())
                 .username(targetUser.getUsername())
                 .displayName(targetUser.getDisplayName() != null ? targetUser.getDisplayName() : targetUser.getUsername())
                 .participants(updatedRoom.getParticipants())

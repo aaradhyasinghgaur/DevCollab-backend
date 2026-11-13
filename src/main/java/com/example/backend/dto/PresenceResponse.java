@@ -19,6 +19,8 @@ public class PresenceResponse {
     private String username;
     private String displayName;
     private String message;
+    private String role;
+    private String roles;
     private List<ParticipantDto> participants;
     private Long timestamp;
 }
