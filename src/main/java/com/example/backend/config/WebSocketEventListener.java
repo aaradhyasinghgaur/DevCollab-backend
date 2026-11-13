@@ -13,7 +13,6 @@ import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
-import java.util.Map;
 import java.util.UUID;
 
 @Component
@@ -27,37 +26,49 @@ public class WebSocketEventListener {
 
     @EventListener
     public void handleWebSocketDisconnectListener(SessionDisconnectEvent event) {
+        String sessionId = event.getSessionId();
+        PresenceService.SessionMeta meta = presenceService.unregisterSession(sessionId);
+
         StompHeaderAccessor headerAccessor = StompHeaderAccessor.wrap(event.getMessage());
-        if (headerAccessor.getSessionAttributes() != null) {
-            String username = (String) headerAccessor.getSessionAttributes().get("username");
-            String roomIdStr = (String) headerAccessor.getSessionAttributes().get("roomId");
-            String userIdStr = (String) headerAccessor.getSessionAttributes().get("userId");
+        String username = null;
+        String roomIdStr = null;
+        String userIdStr = null;
 
-            if (roomIdStr != null && userIdStr != null) {
-                try {
-                    UUID roomId = UUID.fromString(roomIdStr);
-                    UUID userId = UUID.fromString(userIdStr);
-                    log.info("User Disconnected: {} (ID: {}) from room: {}", username, userId, roomId);
+        if (meta != null) {
+            roomIdStr = meta.getRoomId().toString();
+            userIdStr = meta.getUserId().toString();
+            username = meta.getUsername();
+        } else if (headerAccessor.getSessionAttributes() != null) {
+            username = (String) headerAccessor.getSessionAttributes().get("username");
+            roomIdStr = (String) headerAccessor.getSessionAttributes().get("roomId");
+            userIdStr = (String) headerAccessor.getSessionAttributes().get("userId");
+        }
 
-                    presenceService.removeUser(roomId, userId);
+        if (roomIdStr != null && userIdStr != null) {
+            try {
+                UUID roomId = UUID.fromString(roomIdStr);
+                UUID userId = UUID.fromString(userIdStr);
+                log.info("User Disconnected: {} (ID: {}) from room: {}", username, userId, roomId);
 
-                    Room room = roomRepo.findById(roomId).orElse(null);
-                    if (room != null && room.isActive()) {
-                        RoomResponse roomResponse = roomService.mapToRoomResponse(room);
-                        com.example.backend.dto.PresenceResponse offlineEvent = com.example.backend.dto.PresenceResponse.builder()
-                                .type("OFFLINE")
-                                .status("OFFLINE")
-                                .roomId(roomIdStr)
-                                .userId(userIdStr)
-                                .username(username != null ? username : "")
-                                .participants(roomResponse.getParticipants())
-                                .timestamp(System.currentTimeMillis())
-                                .build();
-                        messageTemplate.convertAndSend("/topic/room/" + roomId + "/presence", offlineEvent);
-                    }
-                } catch (Exception e) {
-                    log.warn("Error handling disconnect: {}", e.getMessage());
+                presenceService.removeUser(roomId, userId);
+
+                Room room = roomRepo.findById(roomId).orElse(null);
+                if (room != null && room.isActive()) {
+                    RoomResponse roomResponse = roomService.mapToRoomResponse(room);
+                    com.example.backend.dto.PresenceResponse offlineEvent = com.example.backend.dto.PresenceResponse.builder()
+                            .type("OFFLINE")
+                            .status("OFFLINE")
+                            .roomId(roomIdStr)
+                            .userId(userIdStr)
+                            .username(username != null ? username : "")
+                            .displayName(meta != null && meta.getDisplayName() != null ? meta.getDisplayName() : (username != null ? username : "Collaborator"))
+                            .participants(roomResponse.getParticipants())
+                            .timestamp(System.currentTimeMillis())
+                            .build();
+                    messageTemplate.convertAndSend("/topic/room/" + roomId + "/presence", offlineEvent);
                 }
+            } catch (Exception e) {
+                log.warn("Error handling disconnect: {}", e.getMessage());
             }
         }
     }

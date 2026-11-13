@@ -75,6 +75,8 @@ public class ChatController {
 
         if (user != null) {
             UUID userId = user.getId();
+            String sessionId = headerAccessor.getSessionId();
+
             if (headerAccessor.getSessionAttributes() != null) {
                 headerAccessor.getSessionAttributes().put("roomId", roomId.toString());
                 headerAccessor.getSessionAttributes().put("username", user.getUsername());
@@ -83,7 +85,13 @@ public class ChatController {
 
             if ("LEAVE".equalsIgnoreCase(status) || "INACTIVE".equalsIgnoreCase(status) || "OFFLINE".equalsIgnoreCase(status)) {
                 presenceService.removeUser(roomId, userId);
+                if (sessionId != null) {
+                    presenceService.unregisterSession(sessionId);
+                }
             } else {
+                if (sessionId != null) {
+                    presenceService.registerSession(sessionId, roomId, userId, user.getUsername(), user.getDisplayName());
+                }
                 presenceService.recordHeartbeat(roomId, new com.example.backend.dto.ParticipantDto(
                         userId,
                         user.getDisplayName() != null ? user.getDisplayName() : user.getUsername(),

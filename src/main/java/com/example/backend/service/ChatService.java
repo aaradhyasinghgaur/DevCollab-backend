@@ -65,6 +65,7 @@ public class ChatService {
                 .content(content)
                 .type(type)
                 .createdAt(message != null && message.getCreatedAt() != null ? message.getCreatedAt() : LocalDateTime.now())
+                .timestamp(System.currentTimeMillis())
                 .build();
 
         messagingTemplate.convertAndSend("/topic/room/" + roomId + "/chat", dto);
@@ -87,6 +88,7 @@ public class ChatService {
                         .content(m.getContent())
                         .type(MessageType.CHAT)
                         .createdAt(m.getCreatedAt())
+                        .timestamp(m.getCreatedAt() != null ? m.getCreatedAt().atZone(java.time.ZoneOffset.UTC).toInstant().toEpochMilli() : System.currentTimeMillis())
                         .build()
                 )
                 .toList();

@@ -204,6 +204,7 @@ public class RoomService {
         return mapToRoomResponse(saved);
     }
 
+    @org.springframework.transaction.annotation.Transactional
     public void deleteRoom(java.util.UUID roomId, String username) {
         Room room = roomRepo.findById(roomId)
                 .orElseThrow(() -> new RuntimeException("Room not found: " + roomId));
@@ -212,23 +213,67 @@ public class RoomService {
                 .or(() -> userRepo.findByEmail(username))
                 .orElseThrow(() -> new RuntimeException("User not found: " + username));
 
-        if (!room.getOwner().getId().equals(user.getId())) {
-            throw new RuntimeException("Only the room owner can delete this room");
+        if (room.getOwner().getId().equals(user.getId())) {
+            // Owner permanently deletes room for all participants
+            room.setActive(false);
+            roomRepo.save(room);
+            presenceService.removeRoom(roomId);
+
+            // Broadcast to all active participants in the room that room has been deleted
+            com.example.backend.dto.PresenceResponse deleteEvent = com.example.backend.dto.PresenceResponse.builder()
+                    .type("ROOM_DELETED")
+                    .status("ROOM_DELETED")
+                    .roomId(roomId.toString())
+                    .message("This room has been deleted by the owner.")
+                    .timestamp(System.currentTimeMillis())
+                    .build();
+            messagingTemplate.convertAndSend("/topic/room/" + roomId + "/presence", deleteEvent);
+        } else {
+            // Non-owner deletes the room for themselves only
+            deleteRoomForUser(room, user);
+        }
+    }
+
+    @org.springframework.transaction.annotation.Transactional
+    public void deleteRoomForUser(Room room, User user) {
+        boolean isMember = participantRepo.existsByRoomAndUser(room, user);
+        if (!isMember) {
+            throw new RuntimeException("You are not a member of this room");
         }
 
-        room.setActive(false);
-        roomRepo.save(room);
-        presenceService.removeRoom(roomId);
+        // Permanently remove participant record for this user
+        participantRepo.deleteByRoomAndUser(room, user);
+        presenceService.removeUser(room.getId(), user.getId());
 
-        // Broadcast to all active participants in the room that room has been deleted
-        com.example.backend.dto.PresenceResponse deleteEvent = com.example.backend.dto.PresenceResponse.builder()
-                .type("ROOM_DELETED")
-                .status("ROOM_DELETED")
-                .roomId(roomId.toString())
-                .message("This room has been deleted by the owner.")
+        // Broadcast to remaining room participants that user left/removed the room
+        RoomResponse updatedRoom = mapToRoomResponse(room);
+        com.example.backend.dto.PresenceResponse leaveEvent = com.example.backend.dto.PresenceResponse.builder()
+                .type("USER_LEFT")
+                .status("OFFLINE")
+                .roomId(room.getId().toString())
+                .userId(user.getId().toString())
+                .username(user.getUsername())
+                .displayName(user.getDisplayName() != null ? user.getDisplayName() : user.getUsername())
+                .participants(updatedRoom.getParticipants())
                 .timestamp(System.currentTimeMillis())
                 .build();
-        messagingTemplate.convertAndSend("/topic/room/" + roomId + "/presence", deleteEvent);
+        messagingTemplate.convertAndSend("/topic/room/" + room.getId() + "/presence", leaveEvent);
+    }
+
+    @org.springframework.transaction.annotation.Transactional
+    public void deleteRoomForSelf(java.util.UUID roomId, String username) {
+        Room room = roomRepo.findById(roomId)
+                .orElseThrow(() -> new RuntimeException("Room not found: " + roomId));
+
+        User user = userRepo.findByUsername(username)
+                .or(() -> userRepo.findByEmail(username))
+                .orElseThrow(() -> new RuntimeException("User not found: " + username));
+
+        if (room.getOwner().getId().equals(user.getId())) {
+            deleteRoom(roomId, username);
+        } else {
+            deleteRoomForUser(room, user);
+        }
     }
 
     @org.springframework.transaction.annotation.Transactional
@@ -351,7 +396,7 @@ public class RoomService {
         List<RoomParticipant> participants = participantRepo.findByRoom(room);
         java.util.Set<java.util.UUID> activeUserIds = presenceService.getActiveUserIds(room.getId());
 
-        List<com.example.backend.dto.ParticipantDto> participantDtos = participants.stream()
+        List<com.example.backend.dto.ParticipantDto> participantDtos = new java.util.ArrayList<>(participants.stream()
                 .map(p -> com.example.backend.dto.ParticipantDto.builder()
                         .userId(p.getUser().getId())
                         .displayName(p.getUser().getDisplayName() != null ? p.getUser().getDisplayName() : p.getUser().getUsername())
@@ -361,7 +406,33 @@ public class RoomService {
                         .lastSeenAt(p.getLastSeenAt())
                         .build()
                 )
-                .toList();
+                .toList());
+
+        java.util.Set<java.util.UUID> listedUserIds = participantDtos.stream()
+                .map(com.example.backend.dto.ParticipantDto::getUserId)
+                .collect(java.util.stream.Collectors.toSet());
+
+        // Ensure owner is always in the participants list
+        if (room.getOwner() != null && !listedUserIds.contains(room.getOwner().getId())) {
+            participantDtos.add(0, com.example.backend.dto.ParticipantDto.builder()
+                    .userId(room.getOwner().getId())
+                    .displayName(room.getOwner().getDisplayName() != null ? room.getOwner().getDisplayName() : room.getOwner().getUsername())
+                    .avatarUrl(room.getOwner().getAvatarUrl())
+                    .roles(Role.OWNER)
+                    .online(activeUserIds.contains(room.getOwner().getId()))
+                    .lastSeenAt(room.getUpdatedAt() != null ? room.getUpdatedAt() : room.getCreatedAt())
+                    .build());
+            listedUserIds.add(room.getOwner().getId());
+        }
+
+        // Include any newly joined peers who are actively connected in presenceService
+        for (com.example.backend.dto.ParticipantDto activePeer : presenceService.getActiveParticipants(room.getId())) {
+            if (activePeer != null && activePeer.getUserId() != null && !listedUserIds.contains(activePeer.getUserId())) {
+                activePeer.setOnline(true);
+                participantDtos.add(activePeer);
+                listedUserIds.add(activePeer.getUserId());
+            }
+        }
 
         return RoomResponse.builder()
                 .roomId(room.getId())

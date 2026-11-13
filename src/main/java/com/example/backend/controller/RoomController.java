@@ -77,6 +77,12 @@ public class RoomController {
         return org.springframework.http.ResponseEntity.noContent().build();
     }
 
+    @DeleteMapping("/rooms/{id}/member")
+    public org.springframework.http.ResponseEntity<Void> deleteRoomForSelf(@PathVariable java.util.UUID id, Authentication authentication) {
+        service.deleteRoomForSelf(id, authentication.getName());
+        return org.springframework.http.ResponseEntity.noContent().build();
+    }
+
     @PostMapping("/rooms/{id}/leave")
     public org.springframework.http.ResponseEntity<Void> leaveRoom(@PathVariable java.util.UUID id, Authentication authentication) {
         service.leaveRoom(id, authentication.getName());
