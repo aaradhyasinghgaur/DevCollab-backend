@@ -34,6 +34,7 @@ public class OTService {
     private final RoomSnapshotRepo roomSnapshotRepo;
     private final ObjectMapper objectMapper;
     private final SimpMessageSendingOperations messagingTemplate;
+    private final com.example.backend.respository.ParticipantRepo participantRepo;
 
     private static final int SNAPSHOT_INTERVAL = 25;
 
@@ -122,6 +123,13 @@ public class OTService {
             }
 
             roomRepo.save(room);
+
+            if (user != null) {
+                participantRepo.findByRoomAndUser(room, user).ifPresent(p -> {
+                    p.setLastSeenAt(java.time.LocalDateTime.now());
+                    participantRepo.save(p);
+                });
+            }
 
             OTBroadcastMessage broadcast = OTBroadcastMessage.builder()
                     .roomId(roomId)
